@@ -26,7 +26,7 @@ export default function Home() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const [home, setHome] = useState<HomeT | null>(null)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '')
   const [hist, setHist] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(QUICK_KEY) || '[]') } catch { return [] } })
   const [ai, setAi] = useState(false)
   const load = useCallback(() => { api.get<HomeT>(`${V1}/home`).then(setHome).catch(e => toast(errMsg(e), 'err')) }, [toast])

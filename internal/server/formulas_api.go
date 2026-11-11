@@ -252,10 +252,11 @@ func (s *Server) handleCopyLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 type runIn struct {
-	Values map[string]string `json:"values"`
-	Keep   bool              `json:"keep"`
-	Title  string            `json:"title"`
-	Note   string            `json:"note"`
+	Values     map[string]string `json:"values"`
+	ValuesText string            `json:"values_text"` // "wall_area = 30; coats = 2" (for Pocket AI)
+	Keep       bool              `json:"keep"`
+	Title      string            `json:"title"`
+	Note       string            `json:"note"`
 	// for trying a formula that is not saved yet
 	Code    string        `json:"code"`
 	Inputs  []calc.Input  `json:"inputs"`
@@ -413,6 +414,7 @@ func (s *Server) handleKeepRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	in.Values = mergeValues(in.Values, in.ValuesText)
 	run := &store.Run{UserID: uid, Title: cleanText(in.Title, maxName), Note: cleanText(in.Note, 2000), Source: sourceOf(ctx), Inputs: mustJSON(in.Values)}
 	var res calc.RunResult
 	if b, ok := libraryByKey(in.Key); ok {
@@ -441,4 +443,47 @@ func (s *Server) handleKeepRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publish(ctx, uid, "math.answer_kept", fmt.Sprint(run.ID), map[string]any{"run_id": run.ID, "formula": run.FormulaName, "title": run.Title, "answer": run.Main})
 	writeJSON(w, http.StatusCreated, map[string]any{"run": run, "result": res})
+}
+
+// mergeValues adds "name = value; name = value" (or one per line) to values.
+func mergeValues(values map[string]string, text string) map[string]string {
+	if values == nil {
+		values = map[string]string{}
+	}
+	for _, part := range strings.FieldsFunc(text, func(r rune) bool { return r == ';' || r == '\n' }) {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			k, v, ok = strings.Cut(part, ":")
+		}
+		if ok && strings.TrimSpace(k) != "" {
+			values[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return values
+}
+
+// handleRunGet works a ready calculation out without keeping anything:
+// GET /run?key=paint&values=wall_area=30;coats=2 (or formula_id=3). For
+// Pocket AI and Shortcuts; the inputs and outputs come back with the answer.
+func (s *Server) handleRunGet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	uid := actorID(ctx)
+	q := r.URL.Query()
+	values := mergeValues(nil, q.Get("values"))
+	var name string
+	var ins []calc.Input
+	var outs []calc.Output
+	var code string
+	if b, ok := libraryByKey(q.Get("key")); ok {
+		name, ins, outs, code = b.Name, b.Inputs, b.Outputs, b.Code
+	} else if f, err := s.store.GetFormula(ctx, uid, int64(queryInt(r, "formula_id"))); err == nil {
+		_ = json.Unmarshal(f.Inputs, &ins)
+		_ = json.Unmarshal(f.Outputs, &outs)
+		name, code = f.Name, f.Code
+	} else {
+		writeErr(w, http.StatusBadRequest, "say which calculation: key (a built-in, see /formulas) or formula_id")
+		return
+	}
+	res := s.runFormula(ctx, uid, code, ins, outs, values)
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "inputs": ins, "values": values, "result": res, "answer": mainAnswer(res)})
 }

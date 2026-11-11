@@ -204,6 +204,14 @@ func TestReadyCalculations(t *testing.T) {
 		t.Fatalf("circle: %q", got)
 	}
 	a.expect(400, a.alice, "POST", "/api/v1/formulas", map[string]any{"name": "bad", "inputs": []map[string]any{{"name": "1x"}}})
+	g := a.ok(a.alice, "GET", "/api/v1/run?key=paint&values=wall_area%3D45%3Bcoats%3D2", nil)
+	if str(g, "answer") != "9 L" {
+		t.Fatalf("run by GET: %v", g)
+	}
+	k := a.ok(a.alice, "POST", "/api/v1/runs", map[string]any{"key": "tip", "values_text": "bill = 50 EUR; people = 2", "title": "Lunch"})["run"].(map[string]any)
+	if str(k, "main") != "27.50 EUR" {
+		t.Fatalf("keep by text: %v", k)
+	}
 	// the exact calculator for other apps and AI
 	c := a.ok(a.alice, "GET", "/api/v1/calculate?q=100%20EUR%20in%20BAM", nil)["result"].(map[string]any)
 	if str(c, "text") != "195.58 BAM" {
@@ -212,6 +220,10 @@ func TestReadyCalculations(t *testing.T) {
 	c = a.ok(a.alice, "POST", "/api/v1/calculate", map[string]any{"expr": "x = 4\nx^2 + 1"})["result"].(map[string]any)
 	if str(c, "text") != "17" {
 		t.Fatalf("calculate lines: %v", c)
+	}
+	sr := a.ok(a.alice, "GET", "/api/v1/search?q=20%25%20off%2080", nil)["results"].([]any)
+	if len(sr) == 0 || str(sr[0].(map[string]any), "title") != "20% off 80 = 64" {
+		t.Fatalf("a sum in search: %v", sr)
 	}
 	c = a.ok(a.alice, "GET", "/api/v1/convert?value=5&from=km&to=mi", nil)["result"].(map[string]any)
 	if !strings.HasPrefix(str(c, "text"), "3.106855") {

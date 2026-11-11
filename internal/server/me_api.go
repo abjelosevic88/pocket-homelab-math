@@ -3,10 +3,12 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/abjelosevic88/pocket-homelab-math/internal/calc"
 	"github.com/abjelosevic88/pocket-homelab-math/internal/store"
 )
 
@@ -197,6 +199,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := clampInt(firstPos(queryInt(r, "limit"), 20), 1, 50)
+	// a sum typed into a search box is worked out: "100 EUR in BAM"
+	if looksLikeSum(q) {
+		if ln := calc.Calculate(q, s.calcOptions(ctx, uid, nil)); ln.Kind == "value" && ln.Text != "" {
+			path := "/?q=" + url.QueryEscape(q)
+			out = append(out, map[string]any{"kind": "sum", "id": "sum", "title": q + " = " + ln.Text, "subtitle": "Worked out by Pocket Math", "line": strings.TrimPrefix(ln.Alt, "= "), "url": s.link(path), "path": path, "text": ln.Text, "number": ln.Number, "unit": ln.Unit})
+		}
+	}
 	nbs, err := s.store.Notebooks(ctx, uid, store.NotebookFilter{Q: q, Limit: limit})
 	if err != nil {
 		s.fail(w, err, "search")
@@ -241,6 +250,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		out = out[:limit]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": out})
+}
+
+// looksLikeSum: digits with an operator, a conversion or a percentage.
+func looksLikeSum(q string) bool {
+	if !strings.ContainsAny(q, "0123456789") || len(q) > 200 {
+		return false
+	}
+	l := " " + strings.ToLower(q) + " "
+	return strings.ContainsAny(q, "+-*/^%×÷=√") || strings.Contains(l, " to ") || strings.Contains(l, " in ") || strings.Contains(l, " of ")
 }
 
 func matchLine(text, q string) string {

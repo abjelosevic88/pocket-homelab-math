@@ -28,7 +28,7 @@ var linkRoutes = []struct {
 	scope   string
 }{
 	{"GET", regexp.MustCompile(`^/api/v1/auth/me$`), ""},
-	{"GET", regexp.MustCompile(`^/api/v1/(home|summary|search|notebooks|formulas|runs|practice|reference|rates|templates|convert|calculate|day/\d{4}-\d{2}-\d{2})$`), "math:read"},
+	{"GET", regexp.MustCompile(`^/api/v1/(home|summary|search|notebooks|formulas|run|runs|practice|reference|rates|templates|convert|calculate|day/\d{4}-\d{2}-\d{2})$`), "math:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/notebooks/\d+(/export\.md)?$`), "math:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/formulas/\d+$`), "math:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/library/[a-z0-9_]+$`), "math:read"},

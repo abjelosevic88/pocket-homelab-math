@@ -32,7 +32,7 @@ export function CommandPalette({ onClose, commands }: { onClose: () => void; com
     const hit = (text: string) => words.every(w => text.toLowerCase().includes(w))
     const cmds = commands.filter(c => !n || hit(`${c.label} ${c.keywords || ''}`)).map(c => ({ key: c.id, group: 'Commands', icon: <Icon name={c.icon} size={16} />, label: c.label, hint: c.hint, run: c.run }))
     const f = n.length >= 2 ? found : null
-    const groups: Record<string, [string, string]> = { notebook: ['Notebooks', 'calc'], formula: ['Calculations', 'fx'], answer: ['Kept answers', 'check-circle'] }
+    const groups: Record<string, [string, string]> = { sum: ['Worked out', 'equals'], notebook: ['Notebooks', 'calc'], formula: ['Calculations', 'fx'], answer: ['Kept answers', 'check-circle'] }
     const hits = (f?.results || []).slice(0, 24).map((p, i) => ({ key: `r${i}`, group: (groups[p.kind] || ['Found'])[0], icon: <Icon name={(groups[p.kind] || ['', 'calc'])[1]} size={16} />, label: p.title, sub: (p.line || p.subtitle || '').slice(0, 110) || undefined, run: () => navigate(p.path) }))
     if (n) out.push(...hits, ...cmds)
     else out.push(...cmds)

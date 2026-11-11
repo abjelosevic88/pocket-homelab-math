@@ -113,6 +113,7 @@ func (s *Server) Router() http.Handler {
 				r.Get("/library/{key}", s.handleLibraryFormula)
 				r.Post("/library/{key}/run", s.handleRunLibrary)
 				r.Post("/library/{key}/copy", s.handleCopyLibrary)
+				r.Get("/run", s.handleRunGet)
 				r.Get("/runs", s.handleRuns)
 				r.Post("/runs", s.handleKeepRun)
 				r.Put("/runs/{id}", s.handleUpdateRun)
