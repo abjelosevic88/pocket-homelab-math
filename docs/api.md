@@ -68,4 +68,6 @@ Events (for Pocket Flows): `math.notebook_created`, `math.answer_kept`, `math.fo
 
 ## Account and data
 
-`/auth/*`, `/users`, `/settings`, `/tokens`, `/export.json`, `/import` (the same file twice adds nothing twice), `/backup` (admins: the whole database), `/healthz`, `/readyz`, `/metrics` (with `METRICS_ENABLED`).
+`/auth/*`, `/users`, `/settings`, `/tokens`, `/export.json`, `/import` (the same file twice adds nothing twice; the counts come back under `added` and at the top level, with `skipped`), `/backup` (admins: the whole database), `/healthz`, `/readyz`, `/metrics` (with `METRICS_ENABLED`).
+
+Pocket Move can copy your notebooks, calculations, kept answers and practice out and bring them in: `GET /pocket/portable` describes `/export.json` and `/export.csv` (link scope `move:export`) and `/import` (`move:import`).

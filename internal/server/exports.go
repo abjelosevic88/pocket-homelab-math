@@ -63,7 +63,8 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "this is not a Pocket Math export")
 		return
 	}
-	added := map[string]int{}
+	added := map[string]int{"notebooks": 0, "formulas": 0, "answers": 0, "practice": 0}
+	skipped := 0
 	exists := func(q string, args ...any) bool {
 		var n int
 		_ = s.store.DB.QueryRowContext(ctx, q, args...).Scan(&n)
@@ -72,6 +73,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	for _, en := range f.Notebooks {
 		nb := en.Notebook
 		if exists(`SELECT COUNT(1) FROM notebooks WHERE user_id = ? AND title = ? AND created_at = ?`, uid, nb.Title, nb.CreatedAt) {
+			skipped++
 			continue
 		}
 		nb.ID, nb.UserID, nb.Shared, nb.ShareKey, nb.Source, nb.SourceRef = 0, uid, false, "", "", ""
@@ -100,6 +102,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		if err := s.store.DB.QueryRowContext(ctx, `SELECT id FROM formulas WHERE user_id = ? AND name = ? AND created_at = ?`, uid, fm.Name, fm.CreatedAt).Scan(&id); err == nil {
 			formulaIDs[fm.ID] = id
+			skipped++
 			continue
 		}
 		old := fm.ID
@@ -113,6 +116,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, rn := range f.Runs {
 		if exists(`SELECT COUNT(1) FROM runs WHERE user_id = ? AND formula_name = ? AND created_at = ?`, uid, rn.FormulaName, rn.CreatedAt) {
+			skipped++
 			continue
 		}
 		if rn.FormulaID != nil {
@@ -131,6 +135,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, p := range f.Practice {
 		if !oneOf(p.Skill, skills) || exists(`SELECT COUNT(1) FROM practice WHERE user_id = ? AND skill = ? AND learner = ? AND created_at = ?`, uid, p.Skill, p.Learner, p.CreatedAt) {
+			skipped++
 			continue
 		}
 		p.ID, p.UserID = 0, uid
@@ -140,7 +145,12 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		}
 		added["practice"]++
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"added": added})
+	// the counts nested (for the page) and at the top level (what Pocket Move shows)
+	out := map[string]any{"added": added, "skipped": skipped}
+	for k, v := range added {
+		out[k] = v
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleExportCSV: the kept answers as a spreadsheet.
