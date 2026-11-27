@@ -214,12 +214,13 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 	m := core.Manifest{
 		Slug: "math", Name: "Pocket Math",
 		Description: "Maths for everyday life and school: notebooks where you write sums the way you think them — with units, currencies, percentages and dates (5 km + 300 m, 100 EUR in BAM, 20% off 80, today + 3 weeks) — and see the answers beside each line; graphs with sliders, geometry you can drag, tables of data with averages and trend lines, and equations solved for you. Ready-made calculations for paint, flooring, loans, savings, fuel for a trip, BMI and more, filled in from your other apps; times-tables and sums practice for children. Links to Pocket Rooms, Home, Garage, Health, Money, Wealth, Tables, Notes, Files, Photos, Chat, Learn, Slides, Habits, Family and Alerts; Pocket AI explains the working, turns a problem in words or a photo into sums and drafts calculations — the numbers always come from the calculator.",
-		Icon:        "/favicon.svg", Version: Version,
+		Icon:        "/favicon.svg", Category: "Tools", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "MATH",
-		Publishes: eventTopics,
-		Offers:    linkOffers,
-		Portable:  portable,
-		Uses:      append(linkUses(), core.InferenceUse()),
+		Publishes:    eventTopics,
+		Offers:       linkOffers,
+		Portable:     portable,
+		Capabilities: capabilities,
+		Uses:         append(linkUses(), core.InferenceUse()),
 	}
 	if s.cfg.BaseURL != "" {
 		m.OIDC = &core.OIDCRequest{RedirectURIs: []string{s.oidcCallbackURL()}}

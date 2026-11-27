@@ -14,7 +14,7 @@ import (
 // Pocket Core app links (docs/links.md in pocket-homelab-core), Math as
 // the target: another Pocket app the person allowed in Core may act here for
 // them with a pcx_ token, only within these scopes. Every route not listed
-// in linkRoutes stays closed to it (403).
+// in linkRoutes, portable or capabilities stays closed to it (403).
 
 var linkOffers = []core.Offer{
 	{Scope: "math:read", Name: "See your maths", Description: "Read your notebooks (calculations with their answers, graphs, tables of data), your saved calculations, the answers you kept and how practice is going — and work out sums and unit conversions exactly: for your journal, search and Pocket AI."},
@@ -31,6 +31,19 @@ var portable = &core.Portable{
 	Imports: []core.PortableImport{
 		{Path: "/api/v1/import", Kind: core.KindPocket, ContentType: "application/json", MaxBytes: 64 << 20, Title: "Adds the notebooks, calculations, kept answers and practice from another box; what you already have is left alone"},
 	},
+}
+
+// capabilities are what Pocket Search, Pocket Day and Pocket Hub may ask
+// Math (docs/capabilities.md in pocket-homelab-core); Register adds the
+// pocket:* offers. The routes are in capabilities.go.
+var capabilities = core.Capabilities{
+	Search: &core.Searchable{What: "Your notebooks by their name and the sums in them, your own and the ready calculations, and the answers you kept; a sum you type is worked out",
+		Kinds: []string{"notebook", "formula", "answer", "sum"}, Bangs: []string{"math", "calc", "sum"}},
+	Day:    &core.DayFeed{Label: "Math", One: "sum", Many: "sums", What: "The notebooks you started or worked on that day, the answers you kept and the practice rounds done"},
+	Widget: &core.Widget{Title: "Math", What: "The notebooks you worked on last, pinned ones first, and how today's practice is going"},
+	Capture: &core.QuickCapture{Kinds: []core.CaptureKind{
+		{Kind: "calculation", Label: "Calculation", What: "A sum worked out and kept in a new notebook called Quick sums"},
+	}},
 }
 
 // linkRoutes is what each scope allows; everything else is refused.
@@ -58,7 +71,7 @@ var errLinkScope = errors.New("outside the link's scope")
 
 // linkAllows reports whether a link token with these scopes may make this request.
 func linkAllows(scopes []string, r *http.Request) bool {
-	if portable.LinkAllows(scopes, r) {
+	if portable.LinkAllows(scopes, r) || capabilities.LinkAllows(scopes, r) {
 		return true
 	}
 	for _, lr := range linkRoutes {

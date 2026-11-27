@@ -280,24 +280,32 @@ func (s *Server) handleCreateNotebook(w http.ResponseWriter, r *http.Request) {
 	if len(cells) == 0 {
 		cells = []store.Cell{{Kind: "calc"}}
 	}
-	if err := s.store.CreateNotebook(ctx, nb); err != nil {
-		s.fail(w, err, "create notebook")
+	if step, err := s.keepNotebook(ctx, uid, nb, cells); err != nil {
+		s.fail(w, err, step)
 		return
+	}
+	s.writeNotebook(w, r, nb, http.StatusCreated)
+}
+
+// keepNotebook adds a new notebook with its cells (made by the notebook's
+// source), works it out and tells the Core bus. When it fails it says at
+// which step.
+func (s *Server) keepNotebook(ctx context.Context, uid int64, nb *store.Notebook, cells []store.Cell) (string, error) {
+	if err := s.store.CreateNotebook(ctx, nb); err != nil {
+		return "create notebook", err
 	}
 	for i := range cells {
 		c := cells[i]
-		c.UserID, c.NotebookID, c.Position, c.Source = uid, nb.ID, -1, src
+		c.UserID, c.NotebookID, c.Position, c.Source = uid, nb.ID, -1, nb.Source
 		if err := s.store.CreateCell(ctx, &c); err != nil {
-			s.fail(w, err, "create cell")
-			return
+			return "create cell", err
 		}
 	}
 	if _, err := s.recompute(ctx, uid, nb); err != nil {
-		s.fail(w, err, "work out")
-		return
+		return "work out", err
 	}
 	s.publish(ctx, uid, "math.notebook_created", fmt.Sprint(nb.ID), map[string]any{"notebook_id": nb.ID, "title": nb.Title, "url": s.notebookURL(nb)})
-	s.writeNotebook(w, r, nb, http.StatusCreated)
+	return "", nil
 }
 
 func (s *Server) writeNotebook(w http.ResponseWriter, r *http.Request, nb *store.Notebook, status int) {

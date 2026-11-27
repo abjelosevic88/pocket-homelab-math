@@ -66,6 +66,17 @@ Math offers two scopes to other Pocket apps (switched on per person in Pocket Co
 
 Events (for Pocket Flows): `math.notebook_created`, `math.answer_kept`, `math.formula_saved`, `math.practised`, `math.shared`.
 
+## For Pocket Search, Day and Hub
+
+Math tells Pocket Core what it can do (the capabilities in its manifest, category `Tools`), and answers on one route each, in the shape every Pocket app uses. A person can call them with their own session or token; another app needs the route's own scope (`math:read` and `math:write` do not open them). Everything is the person's own.
+
+| | Scope | |
+|---|---|---|
+| `GET /pocket/search?q=&limit=` | `pocket:search` | What `GET /search` finds, as `{"items": [{"id": "notebook:3" \| "formula:5" \| "formula:paint" \| "answer:7" \| "sum", "title", "snippet", "kind": "notebook\|formula\|answer\|sum", "date", "url", "score"}]}`. A typed sum comes first, worked out (`"15% of 240 = 36"`); then what has the words in its name, then what has them inside (a notebook's `snippet` is the line with its answer); your own things before the ready calculations. A search without a letter or a digit finds nothing |
+| `GET /pocket/day/YYYY-MM-DD?tz=` | `pocket:day` | The rows of `GET /day`: `{"date", "summary": "1 notebook, 2 answers kept, 1 practice round", "items": [{"id": "notebook:3" \| "answer:7" \| "practice:9", "time", "title", "sub", "kind": "notebook\|answer\|practice", "note", "url"}], "metrics": [{"label": "Practice", "value": "19 of 20 right"}]}`. The day runs from midnight to midnight in `tz` (the box's time zone without it). A day with nothing has no summary and no items |
+| `GET /pocket/widget` | `pocket:widget` | The notebooks of the start page, pinned first, then the ones worked on last, at most eight: `{"line", "items": [{"id": "notebook:3", "title", "detail": "School · yesterday", "url": "/n/3"}], "url": "/notebooks"}`. `line` is there only when somebody practised today: "12 of 20 practice questions today", or "Practice today: you 12 of 20, Mila 20 of 20" |
+| `POST /pocket/capture` | `pocket:capture` | `{"request_id", "kind": "calculation", "text": "15% of 240"}` → `201 {"id": "notebook:12", "title": "15% of 240 = 36", "url": "/n/12"}`. The sum is worked out with your own settings and kept as a new notebook called Quick sums (a `title` names it otherwise) with one calculation cell, like "Into a notebook" on the start page; several lines are one calculation and the answer is the last one's. A line the calculator cannot work out is not kept: `400` with the reason. The same `request_id` again answers the same notebook and adds nothing; with another sum it answers `400` |
+
 ## Account and data
 
 `/auth/*`, `/users`, `/settings`, `/tokens`, `/export.json`, `/import` (the same file twice adds nothing twice; the counts come back under `added` and at the top level, with `skipped`), `/backup` (admins: the whole database), `/healthz`, `/readyz`, `/metrics` (with `METRICS_ENABLED`).

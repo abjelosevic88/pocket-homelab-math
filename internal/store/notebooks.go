@@ -31,6 +31,9 @@ type NotebookFilter struct {
 	Subject  string
 	Archived bool
 	Limit    int
+	// Bare leaves out the cell count, the kinds and the first line (one
+	// query less per notebook, for a list that shows none of them).
+	Bare bool
 }
 
 // Notebooks lists one person's notebooks, pinned first, newest change first.
@@ -68,6 +71,12 @@ func (s *Store) Notebooks(ctx context.Context, uid int64, f NotebookFilter) ([]N
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if out == nil {
+		out = []Notebook{}
+	}
+	if f.Bare {
+		return out, nil
+	}
 	// counts, kinds and a first line to show
 	for i := range out {
 		r2, err := s.DB.QueryContext(ctx, `SELECT kind, body, summary FROM cells WHERE notebook_id = ? AND user_id = ? ORDER BY position, id`, out[i].ID, uid)
@@ -96,9 +105,6 @@ func (s *Store) Notebooks(ctx context.Context, uid int64, f NotebookFilter) ([]N
 			}
 		}
 		r2.Close()
-	}
-	if out == nil {
-		out = []Notebook{}
 	}
 	return out, nil
 }

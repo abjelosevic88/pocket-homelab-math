@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -116,27 +117,15 @@ func (s *Server) handleDay(w http.ResponseWriter, r *http.Request) {
 		}
 		return t.Local().Format("15:04")
 	}
-	cells, _ := s.store.CellsChangedOn(ctx, uid, from, to)
-	byNb := map[int64]string{}
-	order := []int64{}
-	for _, c := range cells {
-		if _, ok := byNb[c.NotebookID]; !ok {
-			order = append(order, c.NotebookID)
-		}
-		byNb[c.NotebookID] = c.UpdatedAt
-	}
-	for _, id := range order {
-		nb, err := s.store.GetNotebook(ctx, uid, id)
-		if err != nil {
-			continue
-		}
+	nbs, runs, rounds, _ := s.dayRows(ctx, uid, date, from, to)
+	for _, d := range nbs {
+		nb := d.nb
 		what := "Worked on"
-		if nb.CreatedAt >= from && nb.CreatedAt < to {
+		if d.started {
 			what = "Started"
 		}
-		items = append(items, map[string]any{"time": at(byNb[id]), "kind": "notebook", "emoji": "🧮", "text": what + " “" + nb.Title + "”", "notebook_id": nb.ID, "url": s.notebookURL(nb)})
+		items = append(items, map[string]any{"time": at(d.at), "kind": "notebook", "emoji": "🧮", "text": what + " “" + nb.Title + "”", "notebook_id": nb.ID, "url": s.notebookURL(nb)})
 	}
-	runs, _ := s.store.Runs(ctx, uid, store.RunFilter{From: from, To: to, Limit: 100})
 	for i := len(runs) - 1; i >= 0; i-- {
 		rn := runs[i]
 		text := rn.FormulaName + ": " + rn.Main
@@ -145,7 +134,6 @@ func (s *Server) handleDay(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"time": at(rn.CreatedAt), "kind": "answer", "emoji": "✅", "text": clip(text, 200), "run_id": rn.ID, "url": s.link(fmt.Sprintf("/answers#%d", rn.ID))})
 	}
-	rounds, _ := s.store.Practices(ctx, uid, store.PracticeFilter{From: date, To: date, Limit: 100})
 	for i := len(rounds) - 1; i >= 0; i-- {
 		p := rounds[i]
 		who := ""
@@ -156,6 +144,48 @@ func (s *Server) handleDay(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i]["time"].(string) < items[j]["time"].(string) })
 	writeJSON(w, http.StatusOK, map[string]any{"date": date, "items": items})
+}
+
+// dayNotebook is a notebook with a cell changed on a day: when the last
+// change was, and whether the notebook was started that day.
+type dayNotebook struct {
+	nb      *store.Notebook
+	at      string
+	started bool
+}
+
+// dayRows is what the person worked out on a day: the notebooks with a cell
+// changed between from and to (UTC, as stored), in the order they were first
+// touched; the answers kept then and the practice rounds of that date, both
+// newest first. /day and Pocket Day (capabilities.go) read the same rows.
+// What could be read comes back even when one of the lists failed.
+func (s *Server) dayRows(ctx context.Context, uid int64, date, from, to string) ([]dayNotebook, []store.Run, []store.Practice, error) {
+	cells, err := s.store.CellsChangedOn(ctx, uid, from, to)
+	byNb := map[int64]string{}
+	order := []int64{}
+	for _, c := range cells {
+		if _, ok := byNb[c.NotebookID]; !ok {
+			order = append(order, c.NotebookID)
+		}
+		byNb[c.NotebookID] = c.UpdatedAt
+	}
+	nbs := []dayNotebook{}
+	for _, id := range order {
+		nb, err := s.store.GetNotebook(ctx, uid, id)
+		if err != nil {
+			continue
+		}
+		nbs = append(nbs, dayNotebook{nb: nb, at: byNb[id], started: nb.CreatedAt >= from && nb.CreatedAt < to})
+	}
+	runs, e := s.store.Runs(ctx, uid, store.RunFilter{From: from, To: to, Limit: 100})
+	if err == nil {
+		err = e
+	}
+	rounds, e := s.store.Practices(ctx, uid, store.PracticeFilter{From: date, To: date, Limit: 100})
+	if err == nil {
+		err = e
+	}
+	return nbs, runs, rounds, err
 }
 
 func skillName(k string) string {
@@ -199,21 +229,74 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := clampInt(firstPos(queryInt(r, "limit"), 20), 1, 50)
-	// a sum typed into a search box is worked out: "100 EUR in BAM"
-	if looksLikeSum(q) {
-		if ln := calc.Calculate(q, s.calcOptions(ctx, uid, nil)); ln.Kind == "value" && ln.Text != "" {
-			path := "/?q=" + url.QueryEscape(q)
-			out = append(out, map[string]any{"kind": "sum", "id": "sum", "title": q + " = " + ln.Text, "subtitle": "Worked out by Pocket Math", "line": strings.TrimPrefix(ln.Alt, "= "), "url": s.link(path), "path": path, "text": ln.Text, "number": ln.Number, "unit": ln.Unit})
-		}
-	}
-	nbs, err := s.store.Notebooks(ctx, uid, store.NotebookFilter{Q: q, Limit: limit})
+	fd, err := s.find(ctx, uid, q, limit)
 	if err != nil {
 		s.fail(w, err, "search")
 		return
 	}
+	if ln := fd.sum; ln != nil {
+		path := "/?q=" + url.QueryEscape(q)
+		out = append(out, map[string]any{"kind": "sum", "id": "sum", "title": q + " = " + ln.Text, "subtitle": "Worked out by Pocket Math", "line": strings.TrimPrefix(ln.Alt, "= "), "url": s.link(path), "path": path, "text": ln.Text, "number": ln.Number, "unit": ln.Unit})
+	}
+	for _, n := range fd.notebooks {
+		nb := n.Notebook
+		path := fmt.Sprintf("/n/%d", nb.ID)
+		out = append(out, map[string]any{"kind": "notebook", "id": nb.ID, "title": nb.Title, "subtitle": firstNonEmpty(nb.Subject, "Notebook"), "line": clip(n.line, 200), "url": s.link(path), "path": path, "updated_at": nb.UpdatedAt})
+	}
+	for _, f := range fd.formulas {
+		path := fmt.Sprintf("/f/%d", f.ID)
+		out = append(out, map[string]any{"kind": "formula", "id": f.ID, "title": f.Name, "subtitle": "My calculation", "line": clip(f.About, 200), "url": s.link(path), "path": path})
+	}
+	for _, b := range fd.ready {
+		path := "/f/" + b.Key
+		out = append(out, map[string]any{"kind": "formula", "id": b.Key, "title": b.Name, "subtitle": b.Category, "line": b.About, "url": s.link(path), "path": path})
+	}
+	for _, rn := range fd.runs {
+		path := fmt.Sprintf("/answers#%d", rn.ID)
+		out = append(out, map[string]any{"kind": "answer", "id": rn.ID, "title": firstNonEmpty(rn.Title, rn.FormulaName), "subtitle": "Kept answer · " + rn.FormulaName, "line": rn.Main, "url": s.link(path), "path": path, "updated_at": rn.CreatedAt})
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": out})
+}
+
+// found is what the words of a search find, each list in the order its page
+// shows it.
+type found struct {
+	sum       *calc.Line       // the words worked out, when they are a sum
+	notebooks []foundNotebook  // at most as many as asked for
+	formulas  []store.Formula  // the person's own calculations
+	ready     []builtinFormula // the ready ones
+	runs      []store.Run      // kept answers
+}
+
+// foundNotebook is a notebook with the line the words were found in (its
+// first line when they are in its name).
+type foundNotebook struct {
+	store.Notebook
+	line string
+}
+
+// find looks the words up in the person's notebooks, calculations and kept
+// answers and in the ready calculations, and works them out when they are a
+// sum ("100 EUR in BAM"). /search and Pocket Search (capabilities.go) show
+// the same finds.
+func (s *Server) find(ctx context.Context, uid int64, q string, limit int) (*found, error) {
+	f := &found{}
+	if looksLikeSum(q) {
+		if ln := calc.Calculate(q, s.calcOptions(ctx, uid, nil)); ln.Kind == "value" && ln.Text != "" {
+			f.sum = &ln
+		}
+	}
+	nbs, err := s.store.Notebooks(ctx, uid, store.NotebookFilter{Q: q, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	lq := strings.ToLower(q)
 	for _, nb := range nbs {
 		line := ""
-		if strings.Contains(strings.ToLower(nb.Title), strings.ToLower(q)) {
+		if strings.Contains(strings.ToLower(nb.Title), lq) {
 			line = nb.Preview
 		} else if cells, err := s.store.Cells(ctx, uid, nb.ID); err == nil {
 			for _, c := range cells {
@@ -223,33 +306,22 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		path := fmt.Sprintf("/n/%d", nb.ID)
-		out = append(out, map[string]any{"kind": "notebook", "id": nb.ID, "title": nb.Title, "subtitle": firstNonEmpty(nb.Subject, "Notebook"), "line": clip(line, 200), "url": s.link(path), "path": path, "updated_at": nb.UpdatedAt})
+		f.notebooks = append(f.notebooks, foundNotebook{Notebook: nb, line: line})
 	}
-	lq := strings.ToLower(q)
-	mine, _ := s.store.Formulas(ctx, uid, q)
-	for _, f := range mine {
-		path := fmt.Sprintf("/f/%d", f.ID)
-		out = append(out, map[string]any{"kind": "formula", "id": f.ID, "title": f.Name, "subtitle": "My calculation", "line": clip(f.About, 200), "url": s.link(path), "path": path})
-	}
+	f.formulas, _ = s.store.Formulas(ctx, uid, q)
 	for _, b := range library {
 		if strings.Contains(strings.ToLower(b.Name+" "+b.About), lq) {
-			path := "/f/" + b.Key
-			out = append(out, map[string]any{"kind": "formula", "id": b.Key, "title": b.Name, "subtitle": b.Category, "line": b.About, "url": s.link(path), "path": path})
+			f.ready = append(f.ready, b)
 		}
 	}
 	if runs, err := s.store.Runs(ctx, uid, store.RunFilter{Limit: 500}); err == nil {
 		for _, rn := range runs {
 			if strings.Contains(strings.ToLower(rn.Title+" "+rn.Note+" "+rn.FormulaName), lq) {
-				path := fmt.Sprintf("/answers#%d", rn.ID)
-				out = append(out, map[string]any{"kind": "answer", "id": rn.ID, "title": firstNonEmpty(rn.Title, rn.FormulaName), "subtitle": "Kept answer · " + rn.FormulaName, "line": rn.Main, "url": s.link(path), "path": path, "updated_at": rn.CreatedAt})
+				f.runs = append(f.runs, rn)
 			}
 		}
 	}
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": out})
+	return f, nil
 }
 
 // looksLikeSum: digits with an operator, a conversion or a percentage.
